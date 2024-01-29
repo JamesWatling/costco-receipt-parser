@@ -9,8 +9,7 @@
  *
  * Instructions:
  * 1. Login to Costco
- * 2. View the receipt you'd like a CSV copy of
- * 3. Copy + paste + enter this script into the developer console
+ * 2. Copy + paste + enter this script into the developer console
  *
  * This adaptation attempts to provide an interface that pairs
  * with how a customer uses the Costco website and wishes to
@@ -31,7 +30,7 @@ const consoleWarn = (message) => {
 }
 
 
-const fetchReceipt = async (receiptDate) => {
+const fetchReceipt = async (startDate, endDate) => {
   return await new Promise(function (resolve, reject) {
     let xhr = new XMLHttpRequest()
     xhr.responseType = 'json'
@@ -128,14 +127,14 @@ const fetchReceipt = async (receiptDate) => {
               }
             }`.replace(/\s+/g, ' '),
       variables: {
-        startDate: receiptDate,
-        endDate: receiptDate,
+        startDate,
+        endDate,
       },
     }
 
     xhr.onload = async function () {
       if (xhr.status === 200) {
-        resolve(xhr.response.data.receipts[0])
+        resolve(xhr.response.data.receipts)
       } else {
         reject(xhr.status)
       }
@@ -145,39 +144,27 @@ const fetchReceipt = async (receiptDate) => {
   })
 }
 
-const parseReceipt = (receipt) => {
-  let items = receipt['itemArray'].map((item) => ({
-    id: item['itemNumber'],
-    title: item['itemDescription01'],
-    price: item['amount'],
-  }))
+const parseReceipt = (receipts) => {
+  let items = [];
+  receipts.flatMap((receipt) => {
+    receipt['itemArray'].map((item) => {
+      if (parseInt(item['unit'], 10) >= 1) {
+        items.push({
+          id: item['itemNumber'],
+          title: item['itemDescription01'],
+          description: item['itemDescription02'],
+          quantity: item['unit'],
+          price: item['amount'],
+          date: receipt['transactionDate'],
+          warehouseShortName: receipt['warehouseShortName'],
+          url: `https://www.costco.com/CatalogSearch?dept=All&keyword=${item['itemNumber']}`
+        })
+      }
+    })
+    }
+  )
 
-  let metadata = {
-    subtotal: receipt['subTotal'],
-    tax: receipt['taxes'],
-    total: receipt['total'],
-  }
-
-  return {items: items.flat(2), metadata: metadata}
-}
-
-const getFocusedReceiptDate = () => {
-  let datePattern = /[0-9]{1,2}\/[0-9]{1,2}\/[0-9]{4}/g
-  let matches = null
-
-  let modal = document.querySelector('.MuiDialogContent-root')
-  if (modal !== null) {
-    matches = modal.innerText.match(datePattern)
-  } else {
-    consoleWarn(
-      'No receipt was focused. Did you click on the "View Receipt" button?'
-    )
-    return null
-  }
-
-  // if you come across a receipt with overlapping dates on it,
-  // please file an issue.
-  return matches[0]
+  return {items: items.flat(2), metadata: {}}
 }
 
 const jsonToCSV = (items, metadata) => {
@@ -215,13 +202,11 @@ const saveToDisk = (receipt, outfile) => {
 }
 
 const run = async () => {
-  let receiptDate = getFocusedReceiptDate()
-  let outfile = `costco-${receiptDate}.csv`.replaceAll('/', '-')
-  let receipt = await fetchReceipt(receiptDate)
+  let startDate = "01/01/2023";
+  let endDate = "12/31/2023";
 
-  if (receiptDate === null) {
-    return
-  }
+  let outfile = `costco-${startDate}----${endDate}.csv`.replaceAll('/', '-')
+  let receipt = await fetchReceipt(startDate, endDate)
 
   consoleWarn(`Downloading ${outfile}`)
 
